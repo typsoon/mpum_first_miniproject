@@ -1,1 +1,1 @@
-# First project for a Probabilistic Methods in Machine Learning course
+# First project for the Probabilistic Methods in Machine Learning course

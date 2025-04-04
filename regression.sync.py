@@ -30,7 +30,7 @@ class BaseFunc:
         pass
 
     @abstractmethod
-    def derivative(self, data):
+    def derivative(self, data) -> np.matrix:
         pass
 
     def parameters(self):
@@ -151,13 +151,14 @@ df = pd.read_csv("dane.data", delimiter=r"\s+", header=None, decimal=",")
 
 
 # %%
-def divide_data(data, train_ratio):
+def divide_data(data, test_ratio):
     # return train_test_split(data, train_size=train_ratio,  random_state=42)
-    return train_test_split(data, train_size=train_ratio, random_state=6)
+    return train_test_split(data, test_size=test_ratio, random_state=6)
     # return train_test_split(data, train_size=train_ratio, stratify=housing["median_house_value"], random_state=8)
 
 
-train_set, test_set = divide_data(df, 1 - 0.18)
+train_set, test_set = divide_data(df, test_ratio=0.2)
+train_set, validation_set = divide_data(train_set, test_ratio=0.2)
 # %%
 train_labels = train_set.pop(train_set.columns[7])
 test_labels = test_set.pop(test_set.columns[7])
@@ -166,6 +167,53 @@ train_set.head()
 
 # %%
 train_labels.head()
+
+# %% [markdown]
+# # Analyze Data
+
+# %%
+df.info()
+
+# %%
+df.describe()
+
+# %%
+df_copy = df.copy()
+cols_num = len(df_copy.T)
+print(cols_num)
+for exponent in range(2, 6):
+    for i in range(cols_num - 1):
+        df_copy[f"feature {i}, exponent {exponent}"] = df_copy[i] ** exponent
+
+for exponent in range(1, 3):
+    for left in range(cols_num - 1):
+        for right in range(left + 1, cols_num - 1):
+            df_copy[f"f_{left}^{exponent} * f_{right}"] = (
+                df_copy[left] ** exponent
+            ) * df_copy[right]
+            if exponent > 1:
+                df_copy[f"f_{left} * f_{right}^{exponent}"] = (
+                    df_copy[left] * df_copy[right] ** exponent
+                )
+
+for first in range(cols_num - 1):
+    for second in range(first + 1, cols_num - 1):
+        for third in range(second + 1, cols_num - 1):
+            df_copy[f"f_{first}*f_{second}*f_{third}"] = (
+                df_copy[first] * df_copy[second] * df_copy[third]
+            )
+
+cols_num = len(df_copy.T)
+print(cols_num)
+
+corr_matrix = df_copy.corr()
+# corr_matrix = corr_matrix[abs(corr_matrix[1]) >= 0.05]
+pd.set_option("display.max_rows", 200)
+corr_matrix[7].sort_values(ascending=False)
+# %%
+pd.reset_option("display.max_rows")
+df.hist(bins=50, figsize=(20, 15))
+plt.show()
 
 
 # %%
@@ -179,20 +227,23 @@ def preprocess_data(data_matrix):
 
 
 # %%
-train_matrix = train_set.to_numpy()
-train_labels_matrix = train_labels.to_numpy()
+def to_matrices(data, labels, preprocess_func=lambda x: x):
+    return preprocess_func(data.to_numpy()), labels.to_numpy()
 
-train_matrix = preprocess_data(train_matrix)
+
+train_matrix, train_labels_matrix = to_matrices(
+    train_set, train_labels, preprocess_data
+)
+
 
 print(train_matrix[:6])
 print(train_matrix.shape)
 print(train_labels_matrix.shape)
 
 # %%
-test_matrix = test_set.to_numpy()
-test_matrix = preprocess_data(test_matrix)
 
-test_labels_matrix = test_labels.to_numpy()
+test_matrix, test_labels_matrix = to_matrices(test_set, test_labels, preprocess_data)
+
 print(test_matrix.shape, test_labels_matrix.shape)
 
 # test_set
@@ -200,9 +251,8 @@ print(test_matrix.shape, test_labels_matrix.shape)
 # %% [markdown]
 # # Plot results
 
+
 # %%
-
-
 def train_and_test(
     model, train_matrix, train_labels_matrix, test_matrix, test_labels_matrix
 ):
