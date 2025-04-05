@@ -137,16 +137,16 @@ class OrdinaryBaseFunc(BaseFunc):
 class MSE(LossFunc):
     def loss_value(self, prediction, ground_truth):
         return (
-            # (1 / (2 * self.number_of_inputs))
-            # * (ground_truth - prediction).T
-            # @ (ground_truth - prediction)
-            (1 / (2 * len(prediction)))
+            (1 / (2 * self.number_of_inputs))
             * (ground_truth - prediction).T
             @ (ground_truth - prediction)
+            # (1 / (2 * len(prediction)))
+            # * (ground_truth - prediction).T
+            # @ (ground_truth - prediction)
         )
 
     def loss_derivative(self, prediction, ground_truth, parameters=None):
-        # return 1 / self.number_of_inputs * (prediction - ground_truth)
+        return 1 / self.number_of_inputs * (prediction - ground_truth)
         return 1 / len(prediction) * (prediction - ground_truth)
 
     def __init__(self, number_of_inputs) -> None:
@@ -906,10 +906,10 @@ def ultimate_test_hypothesis(
 # %% [markdown]
 # # Huber loss
 # %%
-# delta = 1e20
-# epochs_num = 700
-delta = 150.0
-epochs_num = 3000
+delta = 75.0
+delta = 1e20
+epochs_num = 700
+# epochs_num = 3000
 train_matrix_hyp = preprocess_data_exponent3(train_set)
 validation_matrix_hyp = preprocess_data_exponent3(validation_set)
 test_matrix_hyp = preprocess_data_exponent3(test_set)
