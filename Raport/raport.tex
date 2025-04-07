@@ -80,7 +80,7 @@
 
   Dodając cechy w postaci $[3]^i$ dla $i\in\{2,\ldots, 200\}$ uzyskałem wynik na walidacyjnym równy $4368.615954268543$. 
   Dodanie $[0]^n$ oraz $[4]^n$ nie poprawiło wyniku.
-  Takie obserwacje mogą sugerować, że etykiety są zależne w sposób wykładniczy od cechy $[3]$.
+  % Takie obserwacje mogą sugerować, że etykiety są zależne w sposób wykładniczy od cechy $[3]$.
 
   Usunąłem potęgi i dodałem cechy $\exp\left(\frac{[3]-\overline{[3]}}{s}\right)$ dla $s\in\{2,\ldots,10\}$ i otrzymałem błąd
   $5037.689339105426$ na zbiorze walidacyjnym.
@@ -97,6 +97,32 @@
   \subsection{Pewien problem z MSE}
   Zauważyłem, że moje MSE od początku miało bład w implementacji co prowadziło do błędnych wyników. 
   Co prawda nie jest to zbyt szkodliwy błąd bo rózniło się o stały czynnik od faktycznego ale unieważnia niestety moje poprzednie wyniki pod względem liczbowym. 
-  Nie powinno mieć to chyba wpływu na jakość hipotez.
+  Nie powinno mieć to chyba wpływu na jakość hipotez. Po naprawieniu MSE najlepsza strata na zbiorze walidacyjnym wynosi $5535.337277219477$.
+
+  Postanowiłem sprawdzić jakie wyniki otrzymam przy trenowaniu z funkcją Hubera. Poprawiło to MSE na walidacyjnym o około $100$ ale kosztowało to $2$ razy tyle epok.
+  
+
+  Postanowiłem spróbować znaleźć najlepszy regresor używający tylko funkcji wielomianowych. 
+  Po dodaniu wszystkich cech wielomianowo zależnych od cech $0,2,3,4$ o stopniu $\le 7$ otrzymałem MSE $4053.091305029673$ na zbiorze walidacyjnym.
+  W tym momencie dodanie $[3]^i$ dla $i\in\{2,\ldots, 100\}$ nie poprawia wyniku.
+
+  Spróbuję usunąć cechy, których współczynniki w wytrenowanym $\theta$ są najmniejsze. 
+  Po odcięciu wszystkich cech o~współczynnikach z wartością bezwzględną $<7$ zostaje nam $47$ (było $330$) cech a MSE na walidacyjnym wynosi $4257.727541233007$.
+
+  Po odcięciu cech $f$ o $|f| < 20$ zostało ich $14$ a MSE wynosi $4919.087971933042$.
+
+  Teraz postanowiłem odcinać tak, żeby zostawiać tylko $k$ największych na moduł wartości.
+
+  Żeby osiągnąć wynik podobny do tego z $46$ cechami wystarcza $31$ cech. 
+  Teraz postanowiłem sprawdzić korelację pomiędzy tymi $31$ cechami. 
+  Postanowiłem usunąć cechy, które mają cechę o korelacji większej niż $0.9$ ze sobą.
+
+
+  W międzyczasie postanowiłem sprawdzić rozwiązanie analityczne. Zaważyłem, że na modelu z $31$ cechami daje ono MSE około $1300$ 
+  a na modelu ze wszystkimi wielomianowymi zależnościami około $46$. Może to sugerować, że bardzo słabo zbiegam do minimum.
+  
+  W celu poprawy zbieżności zaimplementowałem regresję opartą na Batchach i uzyskałem wynik $3661.2131984696985$ na modelu ze wszystkimi wielomianowymi cechami.
+  Po zwiększeniu liczby epok do $10000$ udało mi się otrzymać $2698.151761980878$ na zbiorze walidacyjnym.
+
 
 \end{document}
