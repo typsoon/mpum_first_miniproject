@@ -11,7 +11,10 @@
 \setlength{\parindent}{0pt}
 
 \begin{document}
-  Podzieliłem dane na zbiory treningowy, walidacyjny, testowy w proporcjach 0.6 : 0.2 : 0.2
+
+  \section{first\_miniproject}
+
+  Podzieliłem dane na zbiory treningowy, walidacyjny, testowy w proporcjach 0.6 : 0.2 : 0.2.
   Stworzyłem model regresji liniowej używający metody gradientowej dla funkcji straty MSE. Osiągnął on następujące wyniki:
 
   MSE
@@ -99,6 +102,8 @@
   Co prawda nie jest to zbyt szkodliwy błąd bo rózniło się o stały czynnik od faktycznego ale unieważnia niestety moje poprzednie wyniki pod względem liczbowym. 
   Nie powinno mieć to chyba wpływu na jakość hipotez. Po naprawieniu MSE najlepsza strata na zbiorze walidacyjnym wynosi $5535.337277219477$.
 
+  \vspace{5pt}
+
   Postanowiłem sprawdzić jakie wyniki otrzymam przy trenowaniu z funkcją Hubera. Poprawiło to MSE na walidacyjnym o około $100$ ale kosztowało to $2$ razy tyle epok.
   
 
@@ -114,15 +119,48 @@
   Teraz postanowiłem odcinać tak, żeby zostawiać tylko $k$ największych na moduł wartości.
 
   Żeby osiągnąć wynik podobny do tego z $46$ cechami wystarcza $31$ cech. 
-  Teraz postanowiłem sprawdzić korelację pomiędzy tymi $31$ cechami. 
-  Postanowiłem usunąć cechy, które mają cechę o korelacji większej niż $0.9$ ze sobą.
-
+  % Teraz postanowiłem sprawdzić korelację pomiędzy tymi $31$ cechami. 
+  % Postanowiłem usunąć cechy, które mają cechę o korelacji większej niż $0.9$ ze sobą.
 
   W międzyczasie postanowiłem sprawdzić rozwiązanie analityczne. Zaważyłem, że na modelu z $31$ cechami daje ono MSE około $1300$ 
   a na modelu ze wszystkimi wielomianowymi zależnościami około $46$. Może to sugerować, że bardzo słabo zbiegam do minimum.
+
+  \subsection{Inny problem z MSE}
+  Zauważyłem, że moje MSE nadal jest niepoprawne. Domnażałem je dotąd razy $\frac{1}{2}$. Podobnie jak poprzednio nie ma to wpływu na jakość hipotez.
   
+  \vspace{5pt}
+
   W celu poprawy zbieżności zaimplementowałem regresję opartą na Batchach i uzyskałem wynik $3661.2131984696985$ na modelu ze wszystkimi wielomianowymi cechami.
   Po zwiększeniu liczby epok do $10000$ udało mi się otrzymać $2698.151761980878$ na zbiorze walidacyjnym.
 
+  Po zwiększeniu stopnia wielomianu do $8$ i liczby epok do $4\cdot 10^6$ oraz 
+  zaimplementowania learning\_rate decay uzyskałem $1996.0439283002372$ na walidacyjnym.
+
+  Postanowiłem przetestować regularyzację $L2$ na liczbie epok $8\cdot 10^6$ i parametrze dobranym na podstawie rozwiązania analitycznego na zbiorze walidacyjnym. Znacząco przyspieszyło zbieżność. 
+  Po $1,7\cdot 10^6$ epokach miałem już lepszy wynik niż bez tego po $8\cdot 10^6$
+
+  Równolegle spróbowałem zastosować optymalizator NAdam, żeby zobaczyć czy przyspieszy on zbieżność ale nie uzyskałem satysfakcjonujących rezultatów. 
+  NAdam zbiegał zdecydowanie wolniej.
+  Uznałem, że przetestuję włączanie go dopiero po którejś epoce oraz przetestuję go razem z regularyzacją $L{2}$. 
+  Nie poprawiło to wyniku.
+
+
+  \vspace{5pt}
+
+  Najlepszy wynik przy metodach gradientowych liczył się około $5$ min.
+
+  Regularyzacja z siecią elastyczną nie była sprawdzana na maksymalnej liczbie epok ale na $2000$ epokach nie dawała obiecujących wyników.
+
+  \subsection{Krzywe uczenia się}
+
+  \begin{center}
+    \includegraphics[width = .8\linewidth]{Learning curves.png}
+  \end{center}
+
+  Załączam plik regression.sync.ipynb z większością modeli, które sprawdzałem oraz \\
+  plik regression\_cleaned\_up.sync.ipynb z najbardziej obiecujacymi.
+
+  Załączam też plik konkurs.py, za pomocą którego udało mi się uzyskać $
+2.4568885385259764$ RMSE.
 
 \end{document}

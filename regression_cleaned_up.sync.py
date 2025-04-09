@@ -19,16 +19,25 @@
 
 # %%
 from abc import abstractmethod
+import math
 import numpy as np
 import pandas as pd
-from pandas.core.indexes.datetimes import dt
+import copy
+import math
+from pandas.core.indexes.multi import get_adjustment
 from sklearn.model_selection import train_test_split
 import matplotlib.pyplot as plt
 from typing import Any
 import types
 import seaborn as sns
 from sklearn.preprocessing import PolynomialFeatures
-from tqdm import tqdm
+from collections import defaultdict
+
+# from tqdm import tqdm
+from tqdm.notebook import tqdm
+
+from typing import Tuple
+from typing import cast
 
 
 # %%
@@ -47,6 +56,10 @@ class BaseFunc:
     def update_parameters(self, new_parameters):
         # print("New par shape: ", new_parameters.shape)
         self._parameters = new_parameters
+
+    @abstractmethod
+    def reset(self):
+        pass
 
 
 # %%
@@ -126,6 +139,10 @@ class Model:
         self.base_func.update_parameters(old_parameters)
         return answer
 
+    def get_analytical_pars(self, data, labels):
+        pseudo_inv = np.linalg.pinv(data.T @ data)
+        return pseudo_inv @ data.T @ labels
+
     def L2_ref_analytical_mse(self, data, labels, lambda_val=0.02):
         old_parameters = self.base_func.parameters()
 
@@ -140,6 +157,9 @@ class Model:
         self.base_func.update_parameters(old_parameters)
         return answer
 
+    def reset(self):
+        self.base_func.reset()
+
 
 # %% [markdown]
 # # Concrete implementations
@@ -149,7 +169,8 @@ class Model:
 class OrdinaryBaseFunc(BaseFunc):
     def __init__(self, degree, number_of_inputs) -> None:
         # print(degree)
-        self._parameters = np.random.randn(degree)
+        self.degree = degree
+        self.reset()
 
     def predict(self, data):
         # temp = data @ self._parameters
@@ -159,6 +180,9 @@ class OrdinaryBaseFunc(BaseFunc):
 
     def derivative(self, data):
         return data
+
+    def reset(self):
+        self._parameters = np.random.randn(self.degree)
 
 
 # %%
@@ -225,6 +249,18 @@ def L1_regularization(lambda_coefficient=0.02):
     return L1_reg_func
 
 
+def elastic_net_regularization(lambda_coefficient_1=0.02, lambda_coefficient_2=0.5):
+    def elastic_net_reg_func(parameters):
+        temp_parameters = np.array(parameters)
+        temp_parameters[0] = 0
+        return (
+            lambda_coefficient_1 * np.sign(temp_parameters)
+            + lambda_coefficient_2 * 2 * temp_parameters.T
+        )
+
+    return elastic_net_reg_func
+
+
 # %% [markdown]
 # # Load and display data
 
@@ -233,18 +269,21 @@ df = pd.read_csv("dane.data", delimiter=r"\s+", header=None, decimal=",")
 
 
 # %%
-def divide_data(data, test_ratio):
+def divide_data(data, test_ratio) -> Tuple[pd.DataFrame, pd.DataFrame]:
     # return train_test_split(data, train_size=train_ratio,  random_state=42)
-    return train_test_split(data, test_size=test_ratio, random_state=6)
+    ans = train_test_split(data, test_size=test_ratio, random_state=6)
+    return cast(Tuple[pd.DataFrame, pd.DataFrame], ans)
     # return train_test_split(data, train_size=train_ratio, stratify=housing["median_house_value"], random_state=8)
 
 
 train_set, test_set = divide_data(df, test_ratio=0.2)
 train_set, validation_set = divide_data(train_set, test_ratio=0.2 / 0.6)
+
+
 # %%
-train_labels = train_set.pop(train_set.columns[7])
-validation_labels = validation_set.pop(validation_set.columns[7])
-test_labels = test_set.pop(test_set.columns[7])
+train_labels = train_set.pop(train_set.columns[7])  # pyright: ignore
+validation_labels = validation_set.pop(validation_set.columns[7])  # pyright: ignore
+test_labels = test_set.pop(test_set.columns[7])  # pyright: ignore
 # train_set.insert(0, "Ones", 1)
 train_set.head()
 
@@ -316,7 +355,7 @@ pd.set_option("display.max_rows", 200)
 
 correlations = corr_matrix[7]
 correlations = correlations[abs(correlations) > 0.25]
-correlations.sort_values(ascending=False)
+correlations.sort_values(ascending=False)  # pyright: ignore
 
 # %%
 pd.reset_option("display.max_rows")
@@ -370,6 +409,11 @@ print(test_matrix.shape, test_labels_matrix.shape)
 
 
 # %%
+
+learning_rate = 0.01
+some_models = []
+
+
 def train_and_test(
     model,
     train_matrix,
@@ -400,378 +444,6 @@ def train_and_test(
     plt.show()
 
 
-# %% [markdown]
-# # Ordinary model
-
-# %%
-learning_rate = 0.005
-
-base_func = OrdinaryBaseFunc(train_matrix.shape[1], train_matrix.shape[0])
-loss_func = MSE(train_matrix.shape[0])
-
-model = Model(base_func, loss_func, learning_rate)
-
-# %%
-train_and_test(
-    model,
-    train_matrix,
-    train_labels_matrix,
-    validation_matrix,
-    validation_labels_matrix,
-)
-# %% [markdown]
-# # Ordinary with L2 regularization
-
-# %%
-base_func_reg_L2 = OrdinaryBaseFunc(train_matrix.shape[1], train_matrix.shape[0])
-loss_func_reg_L2 = MSE(train_matrix.shape[0])
-
-
-model = Model(base_func_reg_L2, loss_func_reg_L2, learning_rate, L2_regularization())
-
-# %%
-train_and_test(
-    model,
-    train_matrix,
-    train_labels_matrix,
-    validation_matrix,
-    validation_labels_matrix,
-)
-
-# %% [markdown]
-# # Ordinary with L1 regularization
-
-# %%
-lambda_coefficient = 10
-base_func_reg_L1 = OrdinaryBaseFunc(train_matrix.shape[1], train_matrix.shape[0])
-loss_func_reg_L1 = MSE(train_matrix.shape[0])
-
-
-model = Model(base_func_reg_L1, loss_func_reg_L1, learning_rate, L1_regularization())
-
-# %%
-train_and_test(
-    model,
-    train_matrix,
-    train_labels_matrix,
-    validation_matrix,
-    validation_labels_matrix,
-)
-
-# %% [markdown]
-# # First Hypothesis
-
-
-# %%
-def test_hypothesis(
-    preprocess_matrix_func,
-    train_matrix,
-    train_labels_matrix,
-    validation_matrix,
-    validation_labels_matrix,
-    test_matrix,
-    test_labels_matrix,
-    epochs_num=700,
-    regularization_derivative=None,
-):
-    train_matrix_hyp = preprocess_matrix_func(train_matrix)
-    validation_matrix_hyp = preprocess_matrix_func(validation_matrix)
-    test_matrix_hyp = preprocess_matrix_func(test_matrix)
-    base_func_hyp = OrdinaryBaseFunc(
-        train_matrix_hyp.shape[1], train_matrix_hyp.shape[0]
-    )
-    loss_func_hyp = MSE(train_matrix_hyp.shape[0])
-    model = None
-    if regularization_derivative is None:
-        model = Model(base_func_hyp, loss_func_hyp, learning_rate)
-    else:
-        model = Model(
-            base_func_hyp, loss_func_hyp, learning_rate, regularization_derivative
-        )
-
-    train_and_test(
-        model,
-        train_matrix_hyp,
-        train_labels_matrix,
-        validation_matrix_hyp,
-        validation_labels_matrix,
-        epochs_num,
-    )
-
-    return model
-
-
-# %%
-def preprocess_data_matrix_1(data_matrix):
-    answer = data_matrix[:, [0, 4]]
-    return answer
-
-
-test_hypothesis(
-    preprocess_data_matrix_1,
-    train_matrix,
-    train_labels_matrix,
-    validation_matrix,
-    validation_labels_matrix,
-    test_matrix,
-    test_labels_matrix,
-)
-
-# %% [markdown]
-# # Second Hypothesis
-
-
-# %%
-def preprocess_data_matrix_2(data_matrix):
-    answer = data_matrix[:, [0, 4, 5]]
-    return answer
-
-
-test_hypothesis(
-    preprocess_data_matrix_2,
-    train_matrix,
-    train_labels_matrix,
-    validation_matrix,
-    validation_labels_matrix,
-    test_matrix,
-    test_labels_matrix,
-)
-
-
-# %% [markdown]
-# # Third Hypothesis
-
-
-# %%
-def preprocess_data_matrix_3(data_matrix):
-    answer = np.column_stack(
-        (
-            data_matrix[:, 0],
-            data_matrix[:, 3 + 1],
-            data_matrix[:, 4 + 1],
-            data_matrix[:, 3 + 1] * data_matrix[:, 4 + 1],
-        )
-    )
-    # print(answer.shape)
-    return answer
-
-
-test_hypothesis(
-    preprocess_data_matrix_3,
-    train_matrix,
-    train_labels_matrix,
-    validation_matrix,
-    validation_labels_matrix,
-    test_matrix,
-    test_labels_matrix,
-    1000,
-)
-
-
-# %%
-def preprocess_data_matrix_4(data_matrix):
-    answer = np.column_stack(
-        (
-            data_matrix[:, 0],
-            data_matrix[:, 1],
-            data_matrix[:, 3 + 1],
-            data_matrix[:, 4 + 1],
-            data_matrix[:, 3 + 1] * data_matrix[:, 4 + 1],
-        )
-    )
-    # print(answer.shape)
-    return answer
-
-
-model = test_hypothesis(
-    preprocess_data_matrix_4,
-    train_matrix,
-    train_labels_matrix,
-    validation_matrix,
-    validation_labels_matrix,
-    test_matrix,
-    test_labels_matrix,
-    1000,
-)
-
-print(model.test(preprocess_data_matrix_4(test_matrix), test_labels_matrix))
-
-
-# %%
-def preprocess_data_matrix_5(data_matrix):
-    answer = np.column_stack(
-        (data_matrix[:, 0], data_matrix[:, 1], data_matrix[:, 4], data_matrix[:, 5])
-    )
-    # print(answer.shape)
-    return answer
-
-
-model = test_hypothesis(
-    preprocess_data_matrix_5,
-    train_matrix,
-    train_labels_matrix,
-    validation_matrix,
-    validation_labels_matrix,
-    test_matrix,
-    test_labels_matrix,
-    1000,
-)
-
-
-# print(model.test(preprocess_data_matrix_4(test_matrix), test_labels_matrix))
-# %%
-def preprocess_data_matrix_6(data_matrix):
-    answer = np.column_stack(
-        (
-            data_matrix[:, 0],
-            data_matrix[:, 1],
-            data_matrix[:, 5],
-            data_matrix[:, 4] * data_matrix[:, 5],
-        )
-    )
-    # print(answer.shape)
-    return answer
-
-
-model = test_hypothesis(
-    preprocess_data_matrix_6,
-    train_matrix,
-    train_labels_matrix,
-    validation_matrix,
-    validation_labels_matrix,
-    test_matrix,
-    test_labels_matrix,
-    1000,
-)
-
-
-# %%
-def preprocess_data_matrix_7(data_matrix):
-    answer = np.column_stack(
-        (data_matrix[:, 0], data_matrix[:, 1], data_matrix[:, 4] * data_matrix[:, 5])
-    )
-    # print(answer.shape)
-    return answer
-
-
-model = test_hypothesis(
-    preprocess_data_matrix_7,
-    train_matrix,
-    train_labels_matrix,
-    validation_matrix,
-    validation_labels_matrix,
-    test_matrix,
-    test_labels_matrix,
-    1000,
-)
-
-
-# %%
-def preprocess_data_matrix_8(data_matrix):
-    answer = np.column_stack((data_matrix[:, 0], data_matrix[:, 4] * data_matrix[:, 5]))
-    # print(answer.shape)
-    return answer
-
-
-model = test_hypothesis(
-    preprocess_data_matrix_8,
-    train_matrix,
-    train_labels_matrix,
-    validation_matrix,
-    validation_labels_matrix,
-    test_matrix,
-    test_labels_matrix,
-    1000,
-)
-
-# %% [markdown]
-# # Best hyphothesis with regularization
-
-# %%
-model = test_hypothesis(
-    preprocess_data_matrix_4,
-    train_matrix,
-    train_labels_matrix,
-    validation_matrix,
-    validation_labels_matrix,
-    test_matrix,
-    test_labels_matrix,
-    1000,
-    L1_regularization(),
-)
-
-print(model.test(preprocess_data_matrix_4(test_matrix), test_labels_matrix), end="\n\n")
-
-model = test_hypothesis(
-    preprocess_data_matrix_4,
-    train_matrix,
-    train_labels_matrix,
-    validation_matrix,
-    validation_labels_matrix,
-    test_matrix,
-    test_labels_matrix,
-    1000,
-    L2_regularization(),
-)
-
-print(model.test(preprocess_data_matrix_4(test_matrix), test_labels_matrix))
-
-
-# %% [markdown]
-# # Adding parameters to best hyphothesis
-# %%
-threshold = 1e-8
-
-
-def preprocess_data_matrix_9(data_matrix):
-    answer = np.column_stack(
-        (
-            data_matrix[:, 0],
-            data_matrix[:, 1],
-            # data_matrix[:, 1] ** 2,
-            # data_matrix[:, 1] ** 3,
-            # data_matrix[:, 2],
-            # data_matrix[:, 3],
-            # data_matrix[:, 6],
-            # data_matrix[:, 7],
-            data_matrix[:, 4],
-            data_matrix[:, 4] ** 2,
-            data_matrix[:, 4] ** 3,
-            data_matrix[:, 4] ** 4,
-            data_matrix[:, 4] ** 5,
-            data_matrix[:, 4] ** 6,
-            # data_matrix[:, 4] ** 7,
-            np.where(data_matrix[:, 4] ** 7 < threshold, 0, data_matrix[:, 4] ** 7),
-            # np.where(data_matrix[:, 4] ** 8 < threshold, 0, data_matrix[:, 4] ** 8),
-            data_matrix[:, 5],
-            # data_matrix[:, 5] ** 2,
-            # data_matrix[:, 5] ** 3,
-            data_matrix[:, 4] * data_matrix[:, 5],
-            # data_matrix[:, 1] * data_matrix[:, 5]
-            # data_matrix[:, 4] * data_matrix[:, 1]
-            # data_matrix[:, 4] * data_matrix[:, 5] * data_matrix[:, 0]
-        )
-    )
-    # print(answer.shape)
-    return answer
-
-
-model = test_hypothesis(
-    preprocess_data_matrix_9,
-    train_matrix,
-    train_labels_matrix,
-    validation_matrix,
-    validation_labels_matrix,
-    test_matrix,
-    test_labels_matrix,
-    1000,
-    # L1_regularization(),
-)
-
-
-# %% [markdown]
-# # Korekta błędu myślowego
-# %%
 def new_test_hypothesis(
     preprocess_data_func,
     train_data,
@@ -810,380 +482,13 @@ def new_test_hypothesis(
     return model
 
 
-# %%
-# def preprocess_data_best_model(data_df: pd.DataFrame):
-def preprocess_data_best_model(data_df):
-    data_copy = data_df.copy()
-    columns = pd.DataFrame()
-    columns[0] = data_copy[0]
-    columns[3] = data_copy[3]
-    columns[4] = data_copy[4]
-    columns["[3]*[4]"] = data_copy.iloc[:, 3] * data_copy.iloc[:, 4]
-    powers = range(2, 200)
-
-    # base_col = data_copy.iloc[:, 0]
-    # temp = pd.DataFrame({f"[0]^{i}": base_col**i for i in powers})
-    # columns = pd.concat([columns, temp], axis=1)
-
-    base_col = data_copy.iloc[:, 3]
-    temp = pd.DataFrame({f"[3]^{i}": base_col**i for i in powers})
-    columns = pd.concat([columns, temp], axis=1)
-
-    # base_col = data_copy.iloc[:, 4]
-    # temp = pd.DataFrame({f"[4]^{i}": base_col**i for i in powers})
-    # columns = pd.concat([columns, temp], axis=1)
-
-    assert len(columns.T) > 200, "Columns were not added"
-    return standarize_matrix_and_add_ones(columns.to_numpy())
-
-
-model = new_test_hypothesis(
-    preprocess_data_best_model,
-    train_set,
-    train_labels,
-    validation_set,
-    validation_labels,
-)
-
-
-test_matrix = preprocess_data_best_model(test_set)
-print(model.test(test_matrix, test_labels.to_numpy()))
-
-test_error = model.base_func.predict(test_matrix) - test_labels
-print("Test error std: ", np.std(test_error))
-
-
-# %%
-def preprocess_data_exponent3(data_df):
-    data_copy = data_df.copy()
-    columns = pd.DataFrame()
-    columns[0] = data_copy[0]
-
-    columns[1] = data_copy[1]
-    columns[2] = data_copy[2]
-
-    columns[3] = data_copy[3]
-    columns[4] = data_copy[4]
-
-    # columns[5] = data_copy[5]
-    # columns[6] = data_copy[6]
-
-    prod_of34 = data_copy.iloc[:, 3] * data_copy.iloc[:, 4]
-    base_col = data_copy.iloc[:, 3]
-    # prod_of34 = np.array(data_copy.iloc[:, 3] * data_copy.iloc[:, 4]).astype(np.float64)
-    # prod_of34[prod_of34 == 0] = 1e-9
-    powers = [1, 2]
-    # powers = [1]
-    temp = pd.DataFrame({f"([3]*[4])**{i}": np.pow(prod_of34, i) for i in powers})
-    columns = pd.concat([columns, temp], axis=1)
-
-    powers = [
-        0.5,
-        0.75,
-        # 1,
-        # 1.25,
-        1.5,
-    ]
-    # powers = []
-    temp = pd.DataFrame(
-        {
-            f"|[3]*[4]|**{i}": np.sign(prod_of34) * np.pow(np.abs(prod_of34) * 1.0, i)
-            for i in powers
-        }
-    )
-    columns = pd.concat([columns, temp], axis=1)
-
-    powers = range(2, 4)
-    powers = []
-    temp = pd.DataFrame(
-        {f"([3])**{i}*[4]": np.pow(base_col, i) * data_copy.iloc[:, 4] for i in powers}
-    )
-    columns = pd.concat([columns, temp], axis=1)
-
-    powers = range(2, 5)
-    powers = []
-    temp = pd.DataFrame({f"([3])**{i}": np.pow(base_col, i) for i in powers})
-    columns = pd.concat([columns, temp], axis=1)
-
-    powers = [0.5, 1.5]
-    powers = []
-    temp = pd.DataFrame({f"|[3]|**{i}": np.pow(np.abs(base_col), i) for i in powers})
-    columns = pd.concat([columns, temp], axis=1)
-
-    # powers = [0.5, 0.25, 0.05]
-    powers = []
-    powers += range(1, 10)
-    powers += range(20, 24)
-    # powers += range(60, 68)
-    mean_3 = np.mean(base_col.to_numpy())
-    temp = pd.DataFrame(
-        {
-            f"exp -([3]-mean[3])^2/{s}^2": np.exp(-((base_col - mean_3) ** 2) / (s**2))
-            for s in powers
-        }
-    )
-    columns = pd.concat([columns, temp], axis=1)
-    # print(mean_3)
-
-    # powers = []
-    # powers += range(1, 100)
-    # mean_of_prod34 = np.mean(prod_of34.to_numpy())
-    # temp = pd.DataFrame(
-    #     {
-    #         f"exp -([3]-mean[3])^2/{s}^2": np.exp(
-    #             -((prod_of34 - mean_of_prod34) ** 2) / (s**2)
-    #         )
-    #         for s in powers
-    #     }
-    # )
-    # columns = pd.concat([columns, temp], axis=1)
-
-    # powers = []
-    # powers += range(1, 100)
-    # mean_of_4 = np.mean(data_copy.iloc[:, 4])
-    # temp = pd.DataFrame(
-    #     {
-    #         f"exp -([3]-mean[3])^2/{s}^2": np.exp(
-    #             -((data_copy.iloc[:, 4] - mean_of_4) ** 2) / (s**2)
-    #         )
-    #         for s in powers
-    #     }
-    # )
-    # columns = pd.concat([columns, temp], axis=1)
-
-    # print(mean_3)
-    return standarize_matrix_and_add_ones(columns.to_numpy())
-
-
-model = new_test_hypothesis(
-    preprocess_data_exponent3,
-    train_set,
-    train_labels,
-    validation_set,
-    validation_labels,
-    700,
-    # L1_regularization(),
-)
-
-test_matrix = preprocess_data_exponent3(test_set)
-# print(test_matrix.shape, model.base_func.parameters().shape)
-print(model.test(test_matrix, test_labels.to_numpy()))
-
-
-# %% [markdown]
-# # Experiments
-# %%
-def ultimate_test_hypothesis(
-    preprocess_data_func,
-    train_data,
-    train_labels,
-    validation_data,
-    validation_labels,
-    model,
-    epochs_num=700,
-):
-    train_matrix_hyp = preprocess_data_func(train_data)
-    validation_matrix_hyp = preprocess_data_func(validation_data)
-
-    train_labels_matrix = train_labels.to_numpy()
-    validation_labels = validation_labels.to_numpy()
-    train_and_test(
-        model,
-        train_matrix_hyp,
-        train_labels_matrix,
-        validation_matrix_hyp,
-        validation_labels_matrix,
-        epochs_num,
-    )
-
-    return model
-
-
-# %% [markdown]
-# # Huber loss
-# %%
-# delta = 1e20
-# epochs_num = 700
-delta = 400.0
-epochs_num = 1500
-train_matrix_hyp = preprocess_data_exponent3(train_set)
-validation_matrix_hyp = preprocess_data_exponent3(validation_set)
-test_matrix_hyp = preprocess_data_exponent3(test_set)
-
-base_func_hyp = OrdinaryBaseFunc(train_matrix_hyp.shape[1], train_matrix_hyp.shape[0])
-loss_func_hyp = HUBER(train_matrix_hyp.shape[0], delta)
-reg_parameter = 0.8
-model = Model(
-    base_func_hyp, loss_func_hyp, learning_rate, L1_regularization(reg_parameter)
-)
-# model = Model(base_func_hyp, loss_func_hyp, learning_rate)
-# reg_parameter = 0.00001
-# model = Model(base_func_hyp, loss_func_hyp, learning_rate, L2_regularization(reg_parameter))
-train_and_test(
-    model,
-    train_matrix_hyp,
-    train_labels_matrix,
-    validation_matrix_hyp,
-    validation_labels_matrix,
-    epochs_num,
-)
-
-
-# print("Huber loss: ", model.test(test_matrix, test_labels.to_numpy()))
-model.loss_func = MSE(train_matrix_hyp.shape[0])
-print(
-    "MSE validation: ",
-    model.test(validation_matrix_hyp, validation_labels.to_numpy()),
-    end="\n\n",
-)
-
-print(np.sort(model.base_func.parameters()), end="\n\n")
-# print("MSE: ", model.test(test_matrix_hyp, test_labels.to_numpy()))
-
-train_error = model.base_func.predict(train_matrix_hyp) - train_labels
-print("Train error std: ", np.std(train_error))
-validation_error = model.base_func.predict(validation_matrix_hyp) - validation_labels
-
-# plt.boxplot(
-#     [train_error, validation_error], tick_labels=["Train errors", "Validation errors"]
-# )
-# plt.title("Error boxplot")
-# plt.show()
-
-print("Validation errors:\n", validation_error.sort_values(ascending=False), "\n")
-error_df = pd.DataFrame(
-    {
-        "Error": pd.concat([train_error, validation_error], ignore_index=True),
-        "Set": ["Train"] * len(train_error) + ["Validation"] * len(validation_error),
-    }
-)
-
-# Plot with seaborn
-sns.boxplot(x="Set", y="Error", data=error_df)
-plt.title("Error boxplot")
-# plt.grid(True)
-plt.show()
-
-
-# %% [markdown]
-# # Purely polynomial
-# %%
-def preprocess_data_polynomial(data_df):
-    data_copy = data_df.copy()
-    columns = pd.DataFrame()
-    columns[0] = data_copy[0]
-
-    # columns[1] = data_copy[1]
-    # columns[2] = data_copy[2]
-
-    columns[3] = data_copy[3]
-    columns[4] = data_copy[4]
-
-    # columns[5] = data_copy[5]
-    # columns[6] = data_copy[6]
-
-    prod_of34 = data_copy.iloc[:, 3] * data_copy.iloc[:, 4]
-    base_col = data_copy.iloc[:, 3]
-    feature_0 = data_copy.iloc[:, 0]
-    feature_4 = data_copy.iloc[:, 4]
-
-    # columns["2*3*4"] = base_col * feature_4 * feature_0
-    # columns["2*3*6"] = base_col * feature_4 * data_copy.iloc[:, 6]
-    # prod_of34 = np.array(data_copy.iloc[:, 3] * data_copy.iloc[:, 4]).astype(np.float64)
-    # prod_of34[prod_of34 == 0] = 1e-9
-    powers = [1, 2]
-    # powers = [1]
-    temp = pd.DataFrame({f"([3]*[4])**{i}": np.pow(prod_of34, i) for i in powers})
-    columns = pd.concat([columns, temp], axis=1)
-
-    # temp = pd.DataFrame(
-    #     {f"[3]*[{i}]": base_col * data_copy.iloc[:, i] for i in range(7) if i != 3}
-    # )
-    # columns = pd.concat([columns, temp], axis=1)
-    # temp = pd.DataFrame(
-    #     {
-    #         f"|[3]|*[{i}]": np.abs(base_col) * data_copy.iloc[:, i]
-    #         for i in range(7)
-    #         if i != 3
-    #     }
-    # )
-    # columns = pd.concat([columns, temp], axis=1)
-
-    # temp = pd.DataFrame(
-    #     {
-    #         f"[3]*|[{i}]|": (base_col) * np.abs(data_copy.iloc[:, i])
-    #         for i in range(7)
-    #         if i != 3
-    #     }
-    # )
-    # columns = pd.concat([columns, temp], axis=1)
-
-    powers = [
-        # 0.5,
-        # 0.75,
-        1,
-        # 1.25,
-        # 1.5,
-        # 1.8,
-        2,
-    ]
-    # powers += range(2, 10)
-    # powers = []
-    temp = pd.DataFrame(
-        {
-            f"|[3]*[4]|**{i}": np.sign(prod_of34) * np.pow(np.abs(prod_of34) * 1.0, i)
-            for i in powers
-        }
-    )
-    columns = pd.concat([columns, temp], axis=1)
-
-    powers = range(2, 20)
-    powers = []
-    temp = pd.DataFrame(
-        {f"([3])**{i}*[4]": np.pow(base_col, i) * data_copy.iloc[:, 4] for i in powers}
-    )
-    columns = pd.concat([columns, temp], axis=1)
-
-    powers = []
-    powers += range(2, 70)
-    # powers += range(20, 30)
-    # powers += range(50, 60)
-    # powers += range(90, 100)
-    # powers += range(145, 150)
-    # powers = []
-    temp = pd.DataFrame({f"([3])**{i}": np.pow(base_col, i) for i in powers})
-    columns = pd.concat([columns, temp], axis=1)
-
-    powers = [0.1, 0.33, 0.5, 1.5]
-    # powers += range(2, 100)
-    powers = []
-    temp = pd.DataFrame({f"|[3]|**{i}": np.pow(np.abs(base_col), i) for i in powers})
-    columns = pd.concat([columns, temp], axis=1)
-
-    return standarize_matrix_and_add_ones(columns.to_numpy())
-
-
-model = new_test_hypothesis(
-    preprocess_data_polynomial,
-    train_set,
-    train_labels,
-    validation_set,
-    validation_labels,
-    700,
-    # L1_regularization(),
-)
-
-test_matrix = preprocess_data_polynomial(test_set)
-# print(test_matrix.shape, model.base_func.parameters().shape)
-print(model.test(test_matrix, test_labels.to_numpy()))
-
-
 # %% [markdown]
 # # All polynomial features
 # %%
 
 poly_degree = 7
 poly_degree = 8
+# poly_degree = 9
 treeshold = 20
 k_value = 31
 k_value = 80
@@ -1248,12 +553,41 @@ test_matrix = preprocess_all_polynomial_features(test_set)
 print(model.test(test_matrix, test_labels.to_numpy()))
 
 # poly_degree = 7
+all_polynomial_no_batch = copy.deepcopy(model)
+some_models.append(
+    (
+        "All polynomial no batch",
+        all_polynomial_no_batch,
+        preprocess_all_polynomial_features,
+    )
+)
+
+# %% [markdown]
+# # Saving array
+# %%
+temp_train_set = df.copy()
+temp_train_labels = temp_train_set.pop(temp_train_set.columns[7])  # pyright: ignore
+
+train_matrix_hyp = preprocess_all_polynomial_features(temp_train_set)
+trained_parameters = model.get_analytical_pars(
+    train_matrix_hyp,
+    temp_train_labels,
+)
+
+np.set_printoptions(threshold=int(1e9))
+with open("parameters", "w") as f:
+    f.write(np.array2string(trained_parameters))
+
+error = (train_matrix_hyp @ trained_parameters) - temp_train_labels
+SSE = np.sum(error**2)
+RMSE = np.sqrt(SSE / len(temp_train_labels))
+print(RMSE)
 
 # %%
 trained_parameters = model.base_func.parameters()
 print(np.sort(trained_parameters), trained_parameters.shape)
 sns.histplot(model.base_func.parameters(), bins=50, kde=True)
-plt.title("uuu Sigma Rozkład wartości cech (małe wartości)")
+plt.title("Rozkład wartości cech (małe wartości)")
 plt.xlabel("Wartość")
 plt.ylabel("Liczba")
 plt.yscale("log")  # przy logarytmicznej osi łatwiej zauważyć małe wartości
@@ -1289,9 +623,9 @@ def preprocess_all_polynomial_features_cut_loosely_correlated(data_df):
         if np.abs(trained_parameters[i]) <= treeshold:
             indices_to_remove += [i]
 
-    print(columns_matrix.shape)
+    # print(columns_matrix.shape)
     columns_matrix = np.delete(columns_matrix, indices_to_remove, axis=1)
-    print(columns_matrix.shape)
+    # print(columns_matrix.shape)
 
     return columns_matrix
 
@@ -1310,68 +644,86 @@ test_matrix = preprocess_all_polynomial_features_cut_loosely_correlated(test_set
 # print(test_matrix.shape, model.base_func.parameters().shape)
 print(model.test(test_matrix, test_labels.to_numpy()))
 
+no_batches_cut_by_treeshold = copy.deepcopy(model)
+some_models.append(
+    (
+        "No batches cut by treeshold",
+        no_batches_cut_by_treeshold,
+        preprocess_all_polynomial_features_cut_loosely_correlated,
+    )
+)
+
 
 # %%
-def cut_and_leave_top_k(data_df):
-    global trained_parameters, k_value
-    # data_copy = data_df.copy()
-    columns = pd.DataFrame()
-    columns[0] = data_df[0]
 
-    # columns[1] = data_df[1]
-    columns[2] = data_df[2]
 
-    columns[3] = data_df[3]
-    columns[4] = data_df[4]
+def get_cut_and_leave_top_k(trained_parameters, k_value):
+    def cut_and_leave_top_k(data_df):
+        nonlocal trained_parameters, k_value
+        # data_copy = data_df.copy()
+        columns = pd.DataFrame()
+        columns[0] = data_df[0]
 
-    # columns[5] = data_df[5]
-    # columns[6] = data_df[6]
+        # columns[1] = data_df[1]
+        columns[2] = data_df[2]
 
-    poly = PolynomialFeatures(degree=poly_degree, include_bias=False)
-    # columns_matrix = poly.fit_transform(columns.to_numpy())
-    columns_matrix = poly.fit_transform(columns)
+        columns[3] = data_df[3]
+        columns[4] = data_df[4]
 
-    columns_matrix = standarize_matrix_and_add_ones(columns_matrix)
+        # columns[5] = data_df[5]
+        # columns[6] = data_df[6]
 
-    sorted_by_abs = np.sort(np.abs(trained_parameters))
-    temp_threeshold = sorted_by_abs[-k_value]
-    indices_to_remove = []
-    for i in range(len(trained_parameters)):
-        if np.abs(trained_parameters[i]) < temp_threeshold:
-            indices_to_remove += [i]
+        poly = PolynomialFeatures(degree=poly_degree, include_bias=False)
+        # columns_matrix = poly.fit_transform(columns.to_numpy())
+        columns_matrix = poly.fit_transform(columns)
 
-    print(columns_matrix.shape)
-    columns_matrix = np.delete(columns_matrix, indices_to_remove, axis=1)
-    print(columns_matrix.shape)
+        columns_matrix = standarize_matrix_and_add_ones(columns_matrix)
 
-    # Calculate the correlation matrix
-    corr = pd.DataFrame(columns_matrix).corr()
+        sorted_by_abs = np.sort(np.abs(trained_parameters))
+        temp_threeshold = sorted_by_abs[-k_value]
+        indices_to_remove = []
+        for i in range(len(trained_parameters)):
+            if np.abs(trained_parameters[i]) < temp_threeshold:
+                indices_to_remove += [i]
 
-    show_plot = False
-    # Plot the heatmap
-    if show_plot:
-        plt.figure(figsize=(8, 6))
-        sns.heatmap(
-            corr,
-            annot=True,
-            cmap="coolwarm",
-            fmt=".2f",
-            linewidths=0.5,
-            cbar=True,
-            square=True,
-        )
-        plt.title("Correlation Matrix")
-        plt.show()
+        # print(columns_matrix.shape)
+        columns_matrix = np.delete(columns_matrix, indices_to_remove, axis=1)
+        # print(columns_matrix.shape)
 
-    # sorted = np.sort(corr.to_numpy().flatten())
-    # cut_small = np.ma.masked_less(sorted, 0.9)
-    # print(cut_small)
+        # Calculate the correlation matrix
+        corr = pd.DataFrame(columns_matrix).corr()
 
-    return columns_matrix
+        show_plot = False
+        # Plot the heatmap
+        if show_plot:
+            plt.figure(figsize=(8, 6))
+            sns.heatmap(
+                corr,
+                annot=True,
+                cmap="coolwarm",
+                fmt=".2f",
+                linewidths=0.5,
+                cbar=True,
+                square=True,
+            )
+            plt.title("Correlation Matrix")
+            plt.show()
 
+        # sorted = np.sort(corr.to_numpy().flatten())
+        # cut_small = np.ma.masked_less(sorted, 0.9)
+        # print(cut_small)
+
+        return columns_matrix
+
+    return cut_and_leave_top_k
+
+
+# %%
+
+temp_cut_and_leave = get_cut_and_leave_top_k(trained_parameters.copy(), k_value)
 
 model = new_test_hypothesis(
-    cut_and_leave_top_k,
+    temp_cut_and_leave,
     train_set,
     train_labels,
     validation_set,
@@ -1382,13 +734,13 @@ model = new_test_hypothesis(
     learning_rate=0.01,
 )
 
-validation_matrix = cut_and_leave_top_k(validation_set)
+validation_matrix = temp_cut_and_leave(validation_set)
 print(
     "Analytical validation MSE: ",
     model.analytical_mse(validation_matrix, validation_labels.to_numpy()),
 )
 
-test_matrix = cut_and_leave_top_k(test_set)
+test_matrix = temp_cut_and_leave(test_set)
 # print(test_matrix.shape, model.base_func.parameters().shape)
 print(model.test(test_matrix, test_labels.to_numpy()))
 
@@ -1397,7 +749,17 @@ print(
     model.analytical_mse(test_matrix, test_labels.to_numpy()),
 )
 
+cut_and_leave_top_k_no_batches = copy.deepcopy(model)
+some_models.append(
+    (
+        "Cut and leave top k no batches",
+        cut_and_leave_top_k_no_batches,
+        copy.deepcopy(temp_cut_and_leave),
+    )
+)
 
+
+# %%
 class BatchModel(Model):
     def train(self, epochs_num, data, labels, loss_at_epoch=None):
         # data_copy = data.copy()
@@ -1426,6 +788,9 @@ class BatchModel(Model):
 
             # all_batches_indices = np.array_split(indices, batches_count)
             # for batch_indices in all_batches_indices:
+            if batches_count == 0:
+                continue
+
             for batch_indices in np.array_split(indices, batches_count):
                 # for batch_indices in range(0, rows_count, 32):
                 # batch_indices = indices[batch_indices : batch_indices + 32]
@@ -1470,7 +835,6 @@ class BatchModel(Model):
 # %% [markdown]
 # # Train with batches
 # %%
-preprocess_func = cut_and_leave_top_k
 preprocess_func = preprocess_all_polynomial_features
 
 train_matrix_hyp = preprocess_func(train_set)
@@ -1492,7 +856,7 @@ model = BatchModel(base_func_hyp, loss_func_hyp, learning_rate, batch_size=32)
 
 epochs_num = 10000
 # epochs_num = 200000
-# epochs_num = 700
+epochs_num = 2000
 
 reg_parameter = 0.0005
 train_and_test(
@@ -1512,11 +876,72 @@ print(
     model.test(validation_matrix_hyp, validation_labels.to_numpy()),
     end="\n\n",
 )
+
+all_polynomial_batch_model = copy.deepcopy(model)
+some_models.append(
+    (
+        "All polynomial batch model",
+        all_polynomial_batch_model,
+        preprocess_func,
+    )
+)
+# %% [markdown]
+# # Elastic net regularization
+# %%
+
+preprocess_func = preprocess_all_polynomial_features
+
+train_matrix_hyp = preprocess_func(train_set)
+validation_matrix_hyp = preprocess_func(validation_set)
+test_matrix_hyp = preprocess_func(test_set)
+
+base_func_hyp = OrdinaryBaseFunc(train_matrix_hyp.shape[1], train_matrix_hyp.shape[0])
+loss_func_hyp = MSE(train_matrix_hyp.shape[0])
+# delta = 400.0
+# loss_func_hyp = HUBER(train_matrix_hyp.shape[0], 100)
+
+
+reg_parameter_1 = 0.0001
+reg_parameter_2 = 0.00000001
+model = Model(
+    base_func_hyp,
+    loss_func_hyp,
+    0.01,
+    elastic_net_regularization(
+        reg_parameter_1,
+        reg_parameter_2,
+    ),
+)
+
+epochs_num = 10000
+# epochs_num = 200000
+epochs_num = 2000
+
+reg_parameter = 0.0005
+train_and_test(
+    model,
+    train_matrix_hyp,
+    train_labels_matrix,
+    validation_matrix_hyp,
+    validation_labels_matrix,
+    epochs_num,
+    skip_this_many_in_plot=20000,
+    lambda_val=reg_parameter,
+)
+
+model.loss_func = MSE(train_matrix_hyp.shape[0])
+print(
+    "MSE validation: ",
+    model.test(validation_matrix_hyp, validation_labels.to_numpy()),
+    end="\n\n",
+)
+
+
 # %% [markdown]
 # ## Another try
 # %%
 k_value = 120
-preprocess_func = cut_and_leave_top_k
+preprocess_func = get_cut_and_leave_top_k(trained_parameters.copy(), k_value)
 
 train_matrix_hyp = preprocess_func(train_set)
 validation_matrix_hyp = preprocess_func(validation_set)
@@ -1533,14 +958,14 @@ loss_func_hyp = MSE(train_matrix_hyp.shape[0])
 # model = BatchModel(base_func_hyp, loss_func_hyp, learning_rate,  batch_size=64)
 # model = Model(base_func_hyp, loss_func_hyp, 0.01)
 
-# reg_parameter = 0.00001
-reg_parameter = 0.0005
+reg_parameter_1 = 0.00001
+reg_parameter_2 = 0.0005
 
 model = BatchModel(
     base_func_hyp,
     loss_func_hyp,
     0.01,
-    L2_regularization(reg_parameter),
+    elastic_net_regularization(reg_parameter_1, reg_parameter_2),
     batch_size=64,
 )
 
@@ -1551,7 +976,75 @@ epochs_num = 200000
 epochs_num = 800000
 #
 #
-# epochs_num = 700
+epochs_num = 2000
+# epochs_num = 40000
+#
+train_and_test(
+    model,
+    train_matrix_hyp,
+    train_labels_matrix,
+    validation_matrix_hyp,
+    validation_labels_matrix,
+    epochs_num,
+    skip_this_many_in_plot=20000,
+    lambda_val=reg_parameter,
+)
+
+model.loss_func = MSE(train_matrix_hyp.shape[0])
+print(
+    "MSE validation: ",
+    model.test(validation_matrix_hyp, validation_labels.to_numpy()),
+    end="\n\n",
+)
+
+k_top_batch_model = copy.deepcopy(model)
+some_models.append(
+    (
+        "k top batch model",
+        k_top_batch_model,
+        preprocess_func,
+    )
+)
+
+# %% [markdown]
+# # Elastic net regularization second try
+# %%
+preprocess_func = get_cut_and_leave_top_k(trained_parameters.copy(), k_value)
+
+train_matrix_hyp = preprocess_func(train_set)
+validation_matrix_hyp = preprocess_func(validation_set)
+test_matrix_hyp = preprocess_func(test_set)
+
+base_func_hyp = OrdinaryBaseFunc(train_matrix_hyp.shape[1], train_matrix_hyp.shape[0])
+loss_func_hyp = MSE(train_matrix_hyp.shape[0])
+# delta = 400.0
+# loss_func_hyp = HUBER(train_matrix_hyp.shape[0], 100)
+
+# reg_parameter = 0.8
+# model = BatchModel(base_func_hyp, loss_func_hyp, learning_rate, L1_regularization(reg_parameter))
+
+# model = BatchModel(base_func_hyp, loss_func_hyp, learning_rate,  batch_size=64)
+# model = Model(base_func_hyp, loss_func_hyp, 0.01)
+
+reg_parameter_1 = 0.00001
+reg_parameter_2 = 0.0005
+
+model = BatchModel(
+    base_func_hyp,
+    loss_func_hyp,
+    0.01,
+    elastic_net_regularization(reg_parameter_1, reg_parameter_2),
+    batch_size=64,
+)
+
+epochs_num = 60000
+# epochs_num = 120000
+epochs_num = 200000
+# epochs_num = 400000
+epochs_num = 800000
+#
+#
+epochs_num = 2000
 # epochs_num = 40000
 #
 train_and_test(
@@ -1616,6 +1109,7 @@ class BatchModelWithNadam(Model):
         iter_range = tqdm(range(epochs_num), "Epoch: ")
         batches_count = rows_count // self.batch_size
         # iter_range = range(epochs_num)
+        epoch_idx = 0
         for i in iter_range:
             np.random.shuffle(indices)
 
@@ -1625,7 +1119,8 @@ class BatchModelWithNadam(Model):
 
                 gradient = self._get_gradient(batch, batch_labels)
 
-                if i <= 1.6 * 1e6:
+                new_parameters = None
+                if epoch_idx <= 4e5:
                     new_parameters = (
                         self.base_func.parameters() - self.learning_rate * gradient
                     )
@@ -1644,6 +1139,7 @@ class BatchModelWithNadam(Model):
 
             # if (i > 8e5) and ((i % 10) == 0):
             #     self.learning_rate *= 0.9999
+            epoch_idx += 1
 
     def __init__(
         self,
@@ -1666,7 +1162,7 @@ class BatchModelWithNadam(Model):
 
 # %%
 k_value = 120
-preprocess_func = cut_and_leave_top_k
+preprocess_func = get_cut_and_leave_top_k(trained_parameters.copy(), k_value)
 
 train_matrix_hyp = preprocess_func(train_set)
 validation_matrix_hyp = preprocess_func(validation_set)
@@ -1687,10 +1183,9 @@ epochs_num = 60000
 # epochs_num = 400000
 epochs_num = 800000
 
-#
-# epochs_num = 700
-#
+epochs_num = 40000
 
+# %%
 train_and_test(
     model,
     train_matrix_hyp,
@@ -1708,3 +1203,126 @@ print(
     model.test(validation_matrix_hyp, validation_labels.to_numpy()),
     end="\n\n",
 )
+
+batch_nadam = copy.deepcopy(model)
+some_models.append(
+    (
+        "Batch NAdam",
+        batch_nadam,
+        preprocess_func,
+    )
+)
+
+
+# %%
+# for _ in tqdm(range(200)):
+#     print(_)
+fractions = [0.01, 0.02, 0.03, 0.125, 0.625, 1]
+# fractions = [0.125]
+
+train_data = (train_set, train_labels)
+test_data = (test_set, test_labels)
+
+
+def make_plot(models_data, epochs_num, fractions, sample_count, train_data, test_data):
+    train_set, train_labels = train_data
+    test_set, test_labels = test_data
+
+    input_size = len(train_set)
+    indices = np.arange(len(train_set))
+
+    plot_data = []
+
+    # for model_name, model, preprocess_func in models_data:
+    for model_name, model, preprocess_func in tqdm(models_data, "Model: "):
+        # print("ASSUUASAISUAISUAIAUSI ", model_name)
+        temp_train_matrix = preprocess_func(train_set.copy())
+        temp_train_labels = train_labels.copy().to_numpy()
+
+        # print(temp_train_matrix.shape[0], temp_train_labels.shape[0])
+        assert temp_train_matrix.shape[0] == temp_train_labels.shape[0], (
+            f"This should be equal {temp_train_matrix.shape[1]} {temp_train_labels.shape[0]}"
+        )
+        # pyright: ignore
+
+        # model: Model
+        for fraction in fractions:
+            sample_size = math.ceil(input_size * fraction)
+            if sample_size == 0:
+                continue
+
+            test_scores = []
+            for _ in range(sample_count):
+                model.reset()
+                # print(indices)
+                # sample_indices = np.random.choice(indices, int(input_size * fraction))
+                # print(sample_size
+                sample_indices = np.random.choice(indices, sample_size)
+                # print(sample_indices)
+
+                # print(len(temp_train_matrix), len(temp_train_labels))
+
+                sample_train_matrix = temp_train_matrix[sample_indices]
+                sample_train_labels = temp_train_labels[sample_indices]
+
+                # print(
+                #     sample_train_matrix.shape,
+                #     sample_train_labels.shape,
+                #     model.base_func.parameters().shape,
+                # )
+                #
+                assert (
+                    sample_train_matrix.shape[1]
+                    == model.base_func.parameters().shape[0]
+                ), (
+                    f"This sample sizes should be equal {sample_train_matrix.shape[1]} {model.base_func.parameters().shape[0]}"
+                )
+
+                model.train(epochs_num, sample_train_matrix, sample_train_labels)
+                test_score = model.test(preprocess_func(test_set), test_labels)
+                test_score = np.clip(test_score, 0, 1e5)
+
+                test_scores += [test_score]
+
+            plot_data.append((model_name, fraction, np.mean(test_scores)))
+
+    return plot_data
+
+
+# %% [markdown]
+# # Make plot
+# %%
+# print(some_models)
+
+plot_data = make_plot(
+    some_models,
+    2000,
+    fractions,
+    10,
+    train_data,
+    test_data,
+)
+
+# %%
+grouped = defaultdict(lambda: {"x": [], "y": []})
+
+# Grupowanie po modelu
+for model_name, fraction, test_score in plot_data:
+    grouped[model_name]["x"].append(fraction)
+    # test_score = np.clip(test_score, 0, 1e5)
+    test_score = np.clip(test_score, 0, 1.3e4)
+    grouped[model_name]["y"].append(test_score)
+
+# Tworzenie wykresu
+plt.figure(figsize=(10, 6))
+for model_name, values in grouped.items():
+    plt.plot(values["x"], values["y"], label=model_name, marker="o")
+
+plt.xlabel("Fraction")
+plt.ylabel("Test Score")
+plt.title("Model Performance vs Fraction")
+plt.xlim(0, 1.01)
+plt.legend()
+plt.grid(True)
+plt.tight_layout()
+plt.show()
